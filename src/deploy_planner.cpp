@@ -64,40 +64,24 @@ bool DeployPlanner::get_pos_callback(
         return false;
     }
 
-    // ROS_INFO("%s on line %d\n", __FILE__, __LINE__);
-
     grid_map::Position3 min_bound;
     grid_map::Position3 max_bound;
     octomap->getMetricMin(min_bound(0), min_bound(1), min_bound(2));
     octomap->getMetricMax(max_bound(0), max_bound(1), max_bound(2));
 
-    // ROS_INFO("%f %f %f", min_bound(0), min_bound(1), min_bound(2));
-    // ROS_INFO("%f %f %f", max_bound(0), max_bound(1), max_bound(2));
-
     float probe_min[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_down_};
     float probe_max[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_up_};
 
     double current_pose[3] = {req.position.x, req.position.y, req.position.z};
-    // for (int i : {0, 1, 2}) {
-    //   if(!std::isnan(probe_min[i])) {
-    //     min_bound(i) = current_pose[i] - probe_min[i];
-    //   }
-    //   if(!std::isnan(probe_max[i])) {
-    //     max_bound(i) = current_pose[i] + probe_max[i];
-    //   }
-    // }
 
-    // ROS_INFO("%s on line %d\n", __FILE__, __LINE__);
-    ROS_INFO("%f %f %f", min_bound(0), min_bound(1), min_bound(2));
-    ROS_INFO("%f %f %f", max_bound(0), max_bound(1), max_bound(2));
+    ROS_DEBUG("%f %f %f", min_bound(0), min_bound(1), min_bound(2));
+    ROS_DEBUG("%f %f %f", max_bound(0), max_bound(1), max_bound(2));
 
     if (!grid_map::GridMapOctomapConverter::fromOctomap(*octomap, "elevation", map_, &min_bound, &max_bound)) {
         ROS_ERROR("Failed to call convert Octomap.");
         return false;
     }
     map_.setFrameId(octomap_.header.frame_id);
-
-    // ROS_INFO("%s on line %d\n", __FILE__, __LINE__);
 
     grid_map::GridMap outputmap;
     if (!filter_chain_.update(map_, outputmap)) {
@@ -110,8 +94,6 @@ bool DeployPlanner::get_pos_callback(
         grid_map_publisher_.publish(gridMapMessage);
     }
 
-    // ROS_INFO("%s on line %d\n", __FILE__, __LINE__);
-
     grid_map::Position landing_position(current_pose[0], current_pose[1]);
     grid_map::Index landing_index;
 
@@ -121,7 +103,7 @@ bool DeployPlanner::get_pos_callback(
         double t = outputmap.at("traversability_inflated", *iterator);
         double e = outputmap.at("elevation", *iterator);
 
-        ROS_INFO("traversability_inflated %f", t);
+        ROS_DEBUG("traversability_inflated %f", t);
 
         if (t > probe_traversability_threshold_) {
 
@@ -167,7 +149,7 @@ bool DeployPlanner::get_pos_callback(
             res.position.x = p[0];
             res.position.y = p[1];
             res.position.z = e;
-            ROS_INFO("%f %f %f", p[0], p[1], e);
+            ROS_DEBUG("%f %f %f", p[0], p[1], e);
             return true;
         }
 
