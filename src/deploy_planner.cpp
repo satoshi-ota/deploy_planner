@@ -2,44 +2,45 @@
 #include <grid_map_octomap/GridMapOctomapConverter.hpp>
 #include <visualization_msgs/Marker.h>
 
-DeployPlanner::DeployPlanner(ros::NodeHandle& node_handle)
- :node_handle_(node_handle),
-  map_({"elevation"}),
+DeployPlanner::DeployPlanner()
+ :map_({"elevation"}),
   filter_chain_("grid_map::GridMap"),
   octomap_received_(false)
 {
-    node_handle_.param("octomap_service_topic", octomap_service_, std::string("/octomap_binary"));
-    node_handle_.param("filter_chain_parameter_name", filter_chain_parameter_name_, std::string("grid_map_filters"));
-    node_handle_.param("probe_tf", probe_tf_, std::string("base_link"));
+    ros::NodeHandle nh;
+    ros::NodeHandle private_nh("~");
 
-    node_handle_.param("probe_range_limit_x", probe_range_limit_x_, NAN);
-    node_handle_.param("probe_range_limit_y", probe_range_limit_y_, NAN);
-    node_handle_.param("probe_range_limit_z_down", probe_range_limit_z_down_, NAN);
-    node_handle_.param("probe_range_limit_z_up", probe_range_limit_z_up_, NAN);
-    node_handle_.param("probe_traversability_threshold", probe_traversability_threshold_, 0.8f);
-    node_handle_.param("visualize_position", visualize_position_, true);
-    node_handle_.param("visualize_grid_map", visualize_grid_map_, true);
+    private_nh.param("octomap_service_topic", octomap_service_, std::string("/octomap_binary"));
+    private_nh.param("filter_chain_parameter_name", filter_chain_parameter_name_, std::string("grid_map_filters"));
+    private_nh.param("probe_tf", probe_tf_, std::string("base_link"));
 
-    probe_service_ = node_handle_.advertiseService("/deploy_probe", &DeployPlanner::get_pos_callback, this);
+    private_nh.param("probe_range_limit_x", probe_range_limit_x_, NAN);
+    private_nh.param("probe_range_limit_y", probe_range_limit_y_, NAN);
+    private_nh.param("probe_range_limit_z_down", probe_range_limit_z_down_, NAN);
+    private_nh.param("probe_range_limit_z_up", probe_range_limit_z_up_, NAN);
+    private_nh.param("probe_traversability_threshold", probe_traversability_threshold_, 0.8f);
+    private_nh.param("landing_traversability_threshold", landing_traversability_threshold_, 0.8f);
+    private_nh.param("visualize_position", visualize_position_, true);
+    private_nh.param("visualize_grid_map", visualize_grid_map_, true);
+
+    probe_service_ = nh.advertiseService("/deploy_probe", &DeployPlanner::get_pos_callback, this);
 
     //map_.setBasicLayers({"elevation"});
 
-    if (!filter_chain_.configure(filter_chain_parameter_name_, node_handle_)) {
+    if (!filter_chain_.configure(filter_chain_parameter_name_, nh)) {
         ROS_ERROR("Could not configure the filter chain!");
     }
     if (visualize_grid_map_) {
-        grid_map_publisher_ = node_handle_.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
+        grid_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
     }
     if (visualize_position_) {
-        landing_marker_publisher_ = node_handle_.advertise<visualization_msgs::Marker>("deploy_marker", 1, true);
+        landing_marker_publisher_ = nh.advertise<visualization_msgs::Marker>("deploy_marker", 1, true);
     }
-    octomap_subscriber_ = node_handle_.subscribe("/octomap_binary", 10, &DeployPlanner::octomap_callback, this);
+    octomap_subscriber_ = nh.subscribe("/octomap_binary", 10, &DeployPlanner::octomap_callback, this);
 
 }
 
-DeployPlanner::~DeployPlanner() {
-}
-
+DeployPlanner::~DeployPlanner(){}
 
 void DeployPlanner::octomap_callback(const octomap_msgs::Octomap::ConstPtr& map) {
     octomap_ = *map;
@@ -69,13 +70,21 @@ bool DeployPlanner::get_pos_callback(
     octomap->getMetricMin(min_bound(0), min_bound(1), min_bound(2));
     octomap->getMetricMax(max_bound(0), max_bound(1), max_bound(2));
 
-    float probe_min[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_down_};
-    float probe_max[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_up_};
+    double probe_min[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_down_};
+    double probe_max[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_up_};
 
     double current_pose[3] = {req.position.x, req.position.y, req.position.z};
 
-    ROS_DEBUG("%f %f %f", min_bound(0), min_bound(1), min_bound(2));
-    ROS_DEBUG("%f %f %f", max_bound(0), max_bound(1), max_bound(2));
+    for (int i : {0, 1, 2}) {
+        if(!std::isnan(probe_min[i])) {
+            min_bound(i) = std::max(min_bound(i), current_pose[i] - probe_min[i]);
+            min_bound(i) = std::floor(10 * min_bound(i)) / 10;
+        }
+        if(!std::isnan(probe_max[i])) {
+            max_bound(i) = std::min(max_bound(i), current_pose[i] + probe_max[i]);
+            max_bound(i) = std::floor(10 * max_bound(i)) / 10;
+        }
+    }
 
     if (!grid_map::GridMapOctomapConverter::fromOctomap(*octomap, "elevation", map_, &min_bound, &max_bound)) {
         ROS_ERROR("Failed to call convert Octomap.");
@@ -97,64 +106,71 @@ bool DeployPlanner::get_pos_callback(
     grid_map::Position landing_position(current_pose[0], current_pose[1]);
     grid_map::Index landing_index;
 
-    for (grid_map::SpiralIterator iterator(outputmap, landing_position, 3.0); !iterator.isPastEnd(); ++iterator) {
+    res.position.x = NAN;
+    res.position.y = NAN;
+    res.position.z = NAN;
+    res.traversability = 0.0;
+    res.result = base_landing_planner::GetPos::Response::DEPLOY_POINT_NOT_FOUND;
+
+    for (grid_map::SpiralIterator iterator(outputmap, landing_position, probe_range_limit_x_ / 2.0); !iterator.isPastEnd(); ++iterator) {
 
         grid_map::Position p; outputmap.getPosition(*iterator, p);
         double t = outputmap.at("traversability_inflated", *iterator);
         double e = outputmap.at("elevation", *iterator);
 
-        ROS_DEBUG("traversability_inflated %f", t);
-
-        if (t > probe_traversability_threshold_) {
-
-            if (visualize_grid_map_) {
-                visualization_msgs::Marker marker;
-                marker.header.frame_id = "/map";
-                marker.header.stamp = ros::Time::now();
-
-                marker.ns = "basic_shapes";
-                marker.id = 0;
-
-                marker.type = visualization_msgs::Marker::ARROW;
-                marker.action = visualization_msgs::Marker::ADD;
-
-                marker.pose.orientation.x = 0.0;
-                marker.pose.orientation.y = 0.0;
-                marker.pose.orientation.z = 0.0;
-                marker.pose.orientation.w = 1.0;
-
-                geometry_msgs::Point start_point, end_point;
-                start_point.x = end_point.x = p[0];
-                start_point.y = end_point.y = p[1];
-                start_point.z = end_point.z = e;
-                start_point.z += 1.0;
-
-                marker.points.push_back(start_point);
-                marker.points.push_back(end_point);
-
-                marker.scale.x = 0.1;
-                marker.scale.y = 0.3;
-                marker.scale.z = 0.5;
-
-                marker.color.r = 0.0f;
-                marker.color.g = 1.0f;
-                marker.color.b = 0.0f;
-                marker.color.a = 1.0;
-
-                marker.lifetime = ros::Duration();
-
-                landing_marker_publisher_.publish(marker);
-            }
-
+        if(res.traversability < t && probe_traversability_threshold_ < t){
             res.position.x = p[0];
             res.position.y = p[1];
             res.position.z = e;
-            ROS_DEBUG("%f %f %f", p[0], p[1], e);
-            return true;
+            res.traversability = t;
+            if(landing_traversability_threshold_ < t){
+                res.result = base_landing_planner::GetPos::Response::DEPLOY_LANDING;
+            } else {
+                res.result = base_landing_planner::GetPos::Response::DEPLOY_HOVERING;
+            }
         }
-
     }
 
-    ROS_INFO("Could not find safety point.");
-    return false;
+    ROS_INFO_NAMED("deploy_planner","Maximum traversabiilty: %f", res.traversability);
+
+    if (visualize_grid_map_ && res.position.x != NAN && res.position.y != NAN) {
+        visualization_msgs::Marker marker;
+        marker.header.frame_id = "/map";
+        marker.header.stamp = ros::Time::now();
+
+        marker.ns = "basic_shapes";
+        marker.id = 0;
+
+        marker.type = visualization_msgs::Marker::ARROW;
+        marker.action = visualization_msgs::Marker::ADD;
+
+        marker.pose.orientation.x = 0.0;
+        marker.pose.orientation.y = 0.0;
+        marker.pose.orientation.z = 0.0;
+        marker.pose.orientation.w = 1.0;
+
+        geometry_msgs::Point start_point, end_point;
+        start_point.x = end_point.x = res.position.x;
+        start_point.y = end_point.y = res.position.y;
+        start_point.z = end_point.z = res.position.z;
+        start_point.z += 1.0;
+
+        marker.points.push_back(start_point);
+        marker.points.push_back(end_point);
+
+        marker.scale.x = 0.1;
+        marker.scale.y = 0.3;
+        marker.scale.z = 0.5;
+
+        marker.color.r = 0.0f;
+        marker.color.g = 1.0f;
+        marker.color.b = 0.0f;
+        marker.color.a = 1.0;
+
+        marker.lifetime = ros::Duration();
+
+        landing_marker_publisher_.publish(marker);
+    }
+
+    return true;
 }

@@ -13,8 +13,9 @@ int main(int argc, char** argv)
 {
     // Initialize node and publisher.
     ros::init(argc, argv, "deploy_planner_node");
-    ros::NodeHandle nh;
-    DeployPlanner deploy_planner_node(nh);
+    // ros::NodeHandle nh;
+    DeployPlanner deploy_planner_node;
+    // DeployPlanner deploy_planner_node(nh);
     ros::Duration(2.0).sleep();
     ros::spin();
     return 0;

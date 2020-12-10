@@ -15,7 +15,7 @@
 class DeployPlanner
 {
 public:
-    DeployPlanner(ros::NodeHandle& node_handle);
+    DeployPlanner();
     ~DeployPlanner();
 
     void octomap_callback(const octomap_msgs::Octomap::ConstPtr& msg);
@@ -25,7 +25,6 @@ public:
 
 private:
 
-    ros::NodeHandle& node_handle_;
     grid_map::GridMap map_;
     std::string octomap_service_;
     std::string probe_tf_;
@@ -46,6 +45,7 @@ private:
     float probe_range_limit_z_down_;
     float probe_range_limit_z_up_;
     float probe_traversability_threshold_;
+    float landing_traversability_threshold_;
     bool octomap_received_;
     bool visualize_position_;
     bool visualize_grid_map_;
