@@ -2,13 +2,18 @@
 #include <grid_map_octomap/GridMapOctomapConverter.hpp>
 #include <visualization_msgs/Marker.h>
 
-DeployPlanner::DeployPlanner()
- :map_({"elevation"}),
+DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
+ :tf_(tf), map_({"elevation"}),
   filter_chain_("grid_map::GridMap"),
   octomap_received_(false)
 {
     ros::NodeHandle nh;
     ros::NodeHandle private_nh("~");
+
+    std::string err;
+    while (ros::ok() && !tf_.canTransform("map", "base_link", ros::Time(0), ros::Duration(1.0), &err)){
+        ROS_INFO_STREAM_NAMED("commander","Waiting for transform to be available. (tf says: " << err << ")");
+    }
 
     private_nh.param("octomap_service_topic", octomap_service_, std::string("/octomap_binary"));
     private_nh.param("filter_chain_parameter_name", filter_chain_parameter_name_, std::string("grid_map_filters"));
@@ -22,15 +27,17 @@ DeployPlanner::DeployPlanner()
     private_nh.param("landing_traversability_threshold", landing_traversability_threshold_, 0.8f);
     private_nh.param("visualize_position", visualize_position_, true);
     private_nh.param("visualize_grid_map", visualize_grid_map_, true);
+    private_nh.param("visualize_elevation_map", visualize_elevation_map_, true);
 
     probe_service_ = nh.advertiseService("/deploy_probe", &DeployPlanner::get_pos_callback, this);
 
-    //map_.setBasicLayers({"elevation"});
+    map_.setBasicLayers({"elevation"});
 
     if (!filter_chain_.configure(filter_chain_parameter_name_, nh)) {
         ROS_ERROR("Could not configure the filter chain!");
     }
     if (visualize_grid_map_) {
+        grid_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
         grid_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
     }
     if (visualize_position_) {
@@ -42,16 +49,61 @@ DeployPlanner::DeployPlanner()
 
 DeployPlanner::~DeployPlanner(){}
 
-void DeployPlanner::octomap_callback(const octomap_msgs::Octomap::ConstPtr& map) {
+void DeployPlanner::octomap_callback(const octomap_msgs::Octomap::ConstPtr& map)
+{
     octomap_ = *map;
     octomap_received_ = true;
+
+    octomap::OcTree* octomap = nullptr;
+    octomap::AbstractOcTree* tree = octomap_msgs::msgToMap(octomap_);
+    if (tree) {
+        octomap = dynamic_cast<octomap::OcTree*>(tree);
+    } else {
+        ROS_ERROR("Failed to call convert Octomap.");
+        return;
+    }
+
+    grid_map::Position3 min_bound;
+    grid_map::Position3 max_bound;
+    octomap->getMetricMin(min_bound(0), min_bound(1), min_bound(2));
+    octomap->getMetricMax(max_bound(0), max_bound(1), max_bound(2));
+
+    double probe_min[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_down_};
+    double probe_max[3] = {probe_range_limit_x_, probe_range_limit_y_, probe_range_limit_z_up_};
+
+    geometry_msgs::PoseStamped global_pose;
+    getGlobalPose(global_pose);
+
+    double current_pose[3] = {global_pose.pose.position.x, global_pose.pose.position.y, global_pose.pose.position.z};
+
+    for (int i : {0, 1, 2}) {
+        if(!std::isnan(probe_min[i])) {
+            min_bound(i) = std::max(min_bound(i), current_pose[i] - probe_min[i]);
+        }
+        if(!std::isnan(probe_max[i])) {
+            max_bound(i) = std::min(max_bound(i), current_pose[i] + probe_max[i]);
+        }
+    }
+
+    if (!grid_map::GridMapOctomapConverter::fromOctomap(*octomap, "elevation", map_, &min_bound, &max_bound)) {
+        ROS_ERROR("Failed to call convert Octomap.");
+        return;
+    }
+    map_.setFrameId(octomap_.header.frame_id);
+
+    if (visualize_elevation_map_) {
+        grid_map_msgs::GridMap gridMapMessage;
+        grid_map::GridMapRosConverter::toMessage(map_, gridMapMessage);
+        grid_map_publisher_.publish(gridMapMessage);
+    }
 }
 
 bool DeployPlanner::get_pos_callback(
     base_landing_planner::GetPos::Request &req,
-    base_landing_planner::GetPos::Response &res
-) {
+    base_landing_planner::GetPos::Response &res)
+{
     ROS_INFO("Service call invoked.");
+
     if (!octomap_received_) {
         ROS_ERROR("No octomap received prior to this service call. Aborting.");
         return false;
@@ -78,11 +130,9 @@ bool DeployPlanner::get_pos_callback(
     for (int i : {0, 1, 2}) {
         if(!std::isnan(probe_min[i])) {
             min_bound(i) = std::max(min_bound(i), current_pose[i] - probe_min[i]);
-            min_bound(i) = std::floor(10 * min_bound(i)) / 10;
         }
         if(!std::isnan(probe_max[i])) {
             max_bound(i) = std::min(max_bound(i), current_pose[i] + probe_max[i]);
-            max_bound(i) = std::floor(10 * max_bound(i)) / 10;
         }
     }
 
@@ -97,9 +147,10 @@ bool DeployPlanner::get_pos_callback(
         ROS_ERROR("could not update the grid map filter chain!");
         return false;
     }
+
     if (visualize_grid_map_) {
         grid_map_msgs::GridMap gridMapMessage;
-        grid_map::GridMapRosConverter::toMessage(outputmap, gridMapMessage);
+        grid_map::GridMapRosConverter::toMessage(map_, gridMapMessage);
         grid_map_publisher_.publish(gridMapMessage);
     }
 
@@ -170,6 +221,37 @@ bool DeployPlanner::get_pos_callback(
         marker.lifetime = ros::Duration();
 
         landing_marker_publisher_.publish(marker);
+    }
+
+    return true;
+}
+
+bool DeployPlanner::getGlobalPose(geometry_msgs::PoseStamped& global_pose)
+{
+    tf2::toMsg(tf2::Transform::getIdentity(), global_pose.pose);
+    geometry_msgs::PoseStamped robot_pose;
+    tf2::toMsg(tf2::Transform::getIdentity(), robot_pose.pose);
+    robot_pose.header.frame_id = "base_link";
+    robot_pose.header.stamp = ros::Time();
+
+    try
+    {
+        tf_.transform(robot_pose, global_pose, "map");
+    }
+    catch (tf2::LookupException& ex)
+    {
+        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","No Transform available Error looking up robot pose: %s\n", ex.what());
+        return false;
+    }
+    catch (tf2::ConnectivityException& ex)
+    {
+        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","Connectivity Error looking up robot pose: %s\n", ex.what());
+        return false;
+    }
+    catch (tf2::ExtrapolationException& ex)
+    {
+        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","Extrapolation Error looking up robot pose: %s\n", ex.what());
+        return false;
     }
 
     return true;

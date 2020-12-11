@@ -6,16 +6,17 @@
 *   Institute: University of Zürich, Robotics and Perception Group
 */
 
-#include <ros/ros.h>
-#include "deploy_planner/deploy_planner.h"
+#include <tf2_ros/transform_listener.h>
+#include <deploy_planner/deploy_planner.h>
 
 int main(int argc, char** argv)
 {
-    // Initialize node and publisher.
     ros::init(argc, argv, "deploy_planner_node");
-    // ros::NodeHandle nh;
-    DeployPlanner deploy_planner_node;
-    // DeployPlanner deploy_planner_node(nh);
+
+    tf2_ros::Buffer buffer(ros::Duration(10));
+    tf2_ros::TransformListener tf(buffer);
+    DeployPlanner deploy_planner_node(buffer);
+
     ros::Duration(2.0).sleep();
     ros::spin();
     return 0;

@@ -5,6 +5,8 @@
 #include <filters/filter_chain.h>
 #include <string>
 #include <tf/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2/LinearMath/Quaternion.h>
 
 #include <octomap_msgs/Octomap.h>
 #include <octomap/octomap.h>
@@ -15,15 +17,17 @@
 class DeployPlanner
 {
 public:
-    DeployPlanner();
+    DeployPlanner(tf2_ros::Buffer& tf);
     ~DeployPlanner();
 
     void octomap_callback(const octomap_msgs::Octomap::ConstPtr& msg);
     void convert_and_publish();
     bool get_pos_callback(base_landing_planner::GetPos::Request &req, base_landing_planner::GetPos::Response &res);
-
+    bool getGlobalPose(geometry_msgs::PoseStamped& global_pose);
 
 private:
+
+    tf2_ros::Buffer& tf_;
 
     grid_map::GridMap map_;
     std::string octomap_service_;
@@ -49,5 +53,5 @@ private:
     bool octomap_received_;
     bool visualize_position_;
     bool visualize_grid_map_;
-
+    bool visualize_elevation_map_;
 };
