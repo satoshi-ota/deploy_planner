@@ -12,7 +12,7 @@
   	<param name="visualize_grid_map" value="true" />
     <param name="probe_traversability_threshold" value="0.2" />
     <param name="landing_traversability_threshold" value="0.9" />
-  	<param name="visualize_elevation_map" value="false" />
+  	<param name="visualize_elevation_map" value="true" />
   </node>
 
   <!-- Launch the grid map visualizer -->

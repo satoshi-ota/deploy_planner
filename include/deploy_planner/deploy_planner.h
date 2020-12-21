@@ -37,6 +37,7 @@ private:
 
     ros::ServiceServer probe_service_;
     ros::Publisher grid_map_publisher_;
+    ros::Publisher elev_map_publisher_;
     ros::Publisher octomap_publisher_;
     ros::Publisher landing_marker_publisher_;
     ros::Subscriber octomap_subscriber_;

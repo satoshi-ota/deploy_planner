@@ -38,7 +38,7 @@ DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
     }
     if (visualize_grid_map_) {
         grid_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
-        grid_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("grid_map", 1, true);
+        elev_map_publisher_ = nh.advertise<grid_map_msgs::GridMap>("elev_map", 1, true);
     }
     if (visualize_position_) {
         landing_marker_publisher_ = nh.advertise<visualization_msgs::Marker>("deploy_marker", 1, true);
@@ -151,7 +151,7 @@ bool DeployPlanner::get_pos_callback(
     if (visualize_grid_map_) {
         grid_map_msgs::GridMap gridMapMessage;
         grid_map::GridMapRosConverter::toMessage(map_, gridMapMessage);
-        grid_map_publisher_.publish(gridMapMessage);
+        elev_map_publisher_.publish(gridMapMessage);
     }
 
     grid_map::Position landing_position(current_pose[0], current_pose[1]);
@@ -231,7 +231,7 @@ bool DeployPlanner::getGlobalPose(geometry_msgs::PoseStamped& global_pose)
     tf2::toMsg(tf2::Transform::getIdentity(), global_pose.pose);
     geometry_msgs::PoseStamped robot_pose;
     tf2::toMsg(tf2::Transform::getIdentity(), robot_pose.pose);
-    robot_pose.header.frame_id = "base_link";
+    robot_pose.header.frame_id = "mav_base_link";
     robot_pose.header.stamp = ros::Time();
 
     try
