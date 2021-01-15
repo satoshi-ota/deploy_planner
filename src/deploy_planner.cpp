@@ -30,6 +30,7 @@ DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
     private_nh.param("visualize_elevation_map", visualize_elevation_map_, true);
 
     probe_service_ = nh.advertiseService("/deploy_probe", &DeployPlanner::get_pos_callback, this);
+    gridmap_crient_ = nh.serviceClient<grid_map_msgs::GetGridMap>("/elevation_mapping/get_raw_submap");
 
     map_.setBasicLayers({"elevation"});
 
