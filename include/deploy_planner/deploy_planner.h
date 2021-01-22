@@ -2,6 +2,7 @@
 
 #include <ros/ros.h>
 #include <grid_map_ros/grid_map_ros.hpp>
+#include <grid_map_msgs/GetGridMap.h>
 #include <filters/filter_chain.h>
 #include <string>
 #include <tf/transform_listener.h>
@@ -36,6 +37,7 @@ private:
     filters::FilterChain<grid_map::GridMap> filter_chain_;
 
     ros::ServiceServer probe_service_;
+    ros::ServiceClient gridmap_crient_;
     ros::Publisher grid_map_publisher_;
     ros::Publisher elev_map_publisher_;
     ros::Publisher octomap_publisher_;
@@ -45,12 +47,20 @@ private:
     tf::TransformListener listener_;
     octomap_msgs::Octomap octomap_;
 
+    double deploy_point_x_;
+    double deploy_point_y_;
+
+    double grid_map_center_x_;
+    double grid_map_center_y_;
+
     float probe_range_limit_x_;
     float probe_range_limit_y_;
     float probe_range_limit_z_down_;
     float probe_range_limit_z_up_;
-    float probe_traversability_threshold_;
-    float landing_traversability_threshold_;
+
+    double uav_traversability_threshold_;
+    double ugv_traversability_threshold_;
+    
     bool octomap_received_;
     bool visualize_position_;
     bool visualize_grid_map_;

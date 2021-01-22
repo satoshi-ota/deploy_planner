@@ -17,20 +17,20 @@ grid_map_filters:
   #     layers: [color] # List of layers.
 
   # Fill holes in the map with inpainting.
-  - name: inpaint
-    type: gridMapCv/InpaintFilter
-    params:
-      input_layer: elevation
-      output_layer: elevation_inpainted
-      radius: 0.05
+  # - name: inpaint
+  #   type: gridMapCv/InpaintFilter
+  #   params:
+  #     input_layer: elevation
+  #     output_layer: elevation_inpainted
+  #     radius: 0.05
 
   # Reduce noise with a radial blurring filter.
-  - name: mean_in_radius
-    type: gridMapFilters/MeanInRadiusFilter
-    params:
-      input_layer: elevation
-      output_layer: elevation_smooth
-      radius: 0.06
+  # - name: mean_in_radius
+  #   type: gridMapFilters/MeanInRadiusFilter
+  #   params:
+  #     input_layer: elevation
+  #     output_layer: elevation_smooth
+  #     radius: 0.5
 
   # Boxblur as an alternative to the inpaint and radial blurring filter above.
   # - name: boxblur
@@ -43,6 +43,30 @@ grid_map_filters:
   #     edge_handling: crop # options: inside, crop, empty, mean
   #     window_size: 5 # optional
 
+  - name: roughness_deviation
+    type: gridMapFilters/SlidingWindowMathExpressionFilter
+    params:
+      input_layer: elevation
+      output_layer: roughness_deviation
+      expression: sqrt(sumOfFinites(square(elevation - meanOfFinites(elevation))) ./ numberOfFinites(elevation)) # Standard deviation
+      compute_empty_cells: false
+      edge_handling: crop # options: inside, crop, empty, mean
+      window_length: 1.2
+
+  # - name: roughness_deviation_lower_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: roughness_deviation
+  #     lower_threshold: 0.05
+  #     set_to: 0.05
+  #
+  # - name: roughness_deviation_upper_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: roughness_deviation
+  #     upper_threshold: 0.051
+  #     set_to: 0.051
+
   # Compute surface normals.
   - name: surface_normals
     type: gridMapFilters/NormalVectorsFilter
@@ -53,36 +77,81 @@ grid_map_filters:
       normal_vector_positive_axis: z
 
   # Add a color layer for visualization based on the surface normal.
-  - name: normal_color_map
-    type: gridMapFilters/NormalColorMapFilter
-    params:
-      input_layers_prefix: normal_vectors_
-      output_layer: normal_color
+  # - name: normal_color_map
+  #   type: gridMapFilters/NormalColorMapFilter
+  #   params:
+  #     input_layers_prefix: normal_vectors_
+  #     output_layer: normal_color
 
   # Compute slope from surface normal.
   - name: slope
     type: gridMapFilters/MathExpressionFilter
     params:
       output_layer: slope
-      expression: acos(normal_vectors_z)
+      expression: -acos(normal_vectors_z)
 
-  # Compute roughness as absolute difference from map to smoothened map.
-  - name: roughness
+  - name: slope_inv
+    type: gridMapFilters/MinInRadiusFilter
+    params:
+      input_layer: slope
+      output_layer: slope_inv
+      radius: 0.4
+
+  - name: slope_inflated
     type: gridMapFilters/MathExpressionFilter
     params:
-      output_layer: roughness
-      expression: abs(elevation_inpainted - elevation_smooth)
+      output_layer: slope_inflated
+      expression: abs(slope_inv)
+
+
+  # - name: slope_inflated_lower_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: slope_inflated
+  #     lower_threshold: 0.52
+  #     set_to: 0.0
+  #
+  # - name: slope_inflated_upper_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: slope_inflated
+  #     upper_threshold: 0.53
+  #     set_to: 1.0
+
+
+
+  # Compute roughness as absolute difference from map to smoothened map.
+  # - name: roughness
+  #   type: gridMapFilters/MathExpressionFilter
+  #   params:
+  #     output_layer: roughness
+  #     expression: abs(elevation - elevation_smooth)
+
+  # - name: traversability_lower_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: roughness
+  #     lower_threshold: 0.05
+  #     set_to: 0.0
+
+  # Set upper threshold on traversability.
+  # - name: traversability_upper_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: roughness
+  #     upper_threshold: 0.05
+  #     set_to: 1.0 # Other uses: .nan, .inf
 
   # Edge detection by computing the standard deviation from slope.
-  #- name: edge_detection
-  #  type: gridMapFilters/SlidingWindowMathExpressionFilter
-  #  params:
-  #    input_layer: slope
-  #    output_layer: edges
-  #    expression: sqrt(sumOfFinites(square(slope - meanOfFinites(slope))) ./ numberOfFinites(slope)) # Standard deviation
-  #    compute_empty_cells: false
-  #    edge_handling: crop # options: inside, crop, empty, mean
-  #    window_length: 0.05
+  # - name: edge_detection
+  #   type: gridMapFilters/SlidingWindowMathExpressionFilter
+  #   params:
+  #     input_layer: slope
+  #     output_layer: edges
+  #     expression: sqrt(sumOfFinites(square(slope - meanOfFinites(slope))) ./ numberOfFinites(slope)) # Standard deviation
+  #     compute_empty_cells: false
+  #     edge_handling: crop # options: inside, crop, empty, mean
+  #     window_length: 0.5
 
   # # Edge detection on elevation layer with convolution filter as alternative to filter above.
   # - name: edge_detection
@@ -97,30 +166,37 @@ grid_map_filters:
   #     window_size: 3 # Make sure to make this compatible with the kernel matrix.
 
   # Compute traversability as normalized weighted sum of slope and roughness.
-  - name: traversability
-    type: gridMapFilters/MathExpressionFilter
-    params:
-      output_layer: traversability
-      expression: 0.5 * (1.0 - (slope / 0.6)) + 0.5 * (1.0 - (roughness / 0.1))
-
-  - name: traversability_inflated
-    type: gridMapFilters/MinInRadiusFilter
-    params:
-      input_layer: traversability
-      output_layer: traversability_inflated
-      radius: 0.4
-  # Set lower threshold on traversability.
-  #- name: traversability_lower_threshold
-  #  type: gridMapFilters/ThresholdFilter
-  #  params:
-  #    layer: traversability
-  #    lower_threshold: 0.0
-  #    set_to: 0.0
-
-  # Set upper threshold on traversability.
-  #- name: traversability_upper_threshold
-  #  type: gridMapFilters/ThresholdFilter
-  #  params:
-  #    layer: traversability
-  #    upper_threshold: 1.0
-  #    set_to: 1.0 # Other uses: .nan, .inf
+  # - name: traversability
+  #   type: gridMapFilters/MathExpressionFilter
+  #   params:
+  #     output_layer: traversability
+  #     expression: 0.5 * (1.0 - (slope / 0.6)) + 0.5 * (1.0 - (roughness / 0.1))
+  #
+  # - name: traversability_inflated_uav
+  #   type: gridMapFilters/MinInRadiusFilter
+  #   params:
+  #     input_layer: traversability
+  #     output_layer: traversability_inflated_uav
+  #     radius: 0.9
+  #
+  # - name: traversability_inflated_ugv
+  #   type: gridMapFilters/MinInRadiusFilter
+  #   params:
+  #     input_layer: traversability
+  #     output_layer: traversability_inflated_ugv
+  #     radius: 0.4
+  #
+  # - name: traversability_lower_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: traversability
+  #     lower_threshold: 0.3
+  #     set_to: 0.3
+  #
+  # # Set upper threshold on traversability.
+  # - name: traversability_upper_threshold
+  #   type: gridMapFilters/ThresholdFilter
+  #   params:
+  #     layer: traversability
+  #     upper_threshold: 0.31
+  #     set_to: 1.0 # Other uses: .nan, .inf
