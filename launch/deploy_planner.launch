@@ -4,7 +4,7 @@
 
   <node pkg="deploy_planner" type="deploy_planner_node" name="deploy_planner_node" output="screen">
     <rosparam command="load" file="$(find deploy_planner)/config/grid_map_landing_planner_filter_chain.yaml" />
-  	<param name="probe_range_limit_x" value="4.0" />
+  	<param name="probe_range_limit_x" value="8.0" />
   	<param name="probe_range_limit_y" value="2.0" />
   	<param name="probe_range_limit_z_down" value="2.0" />
   	<param name="probe_range_limit_z_up" value="1.0" />
@@ -19,8 +19,8 @@
     <param name="deploy_point_x" value="14.0" />
   	<param name="deploy_point_y" value="10.0" />
 
-    <param name="grid_map_center_x" value="15" />
-  	<param name="grid_map_center_y" value="-1" />
+    <param name="grid_map_center_x" value="14" />
+  	<param name="grid_map_center_y" value="-7" />
   </node>
 
   <!-- Launch the grid map visualizer -->

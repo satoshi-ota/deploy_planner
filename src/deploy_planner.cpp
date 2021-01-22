@@ -106,25 +106,36 @@ bool DeployPlanner::get_pos_callback(
 
     double r, s, e;
     double r_min, s_min;
-    for (grid_map::SpiralIterator iterator(outputmap, landing_position, probe_range_limit_x_ / 2.0); !iterator.isPastEnd(); ++iterator) {
+    double d, d_max = 0.0;
+    for (grid_map::SpiralIterator outside_iterator(outputmap, landing_position, probe_range_limit_x_ / 2.0); !outside_iterator.isPastEnd(); ++outside_iterator) {
 
-        grid_map::Position p; outputmap.getPosition(*iterator, p);
-        r = outputmap.at("roughness_deviation", *iterator);
-        s = outputmap.at("slope_inflated", *iterator);
-        e = outputmap.at("elevation", *iterator);
+        grid_map::Position p1; outputmap.getPosition(*outside_iterator, p1);
+        r = outputmap.at("roughness_deviation", *outside_iterator);
+        s = outputmap.at("slope_inflated", *outside_iterator);
+        e = outputmap.at("elevation", *outside_iterator);
 
-        if(s < res.traversability && s < ugv_traversability_threshold_){
-            res.position.x = p[0];
-            res.position.y = p[1];
-            res.position.z = e;
-            res.traversability = s;
+        if(s < ugv_traversability_threshold_){
+            for (grid_map::SpiralIterator inside_iterator(outputmap, p1, 10); !inside_iterator.isPastEnd(); ++inside_iterator) {
 
-            r_min = r;
-            s_min = s;
+                grid_map::Position p2; outputmap.getPosition(*inside_iterator, p2);
+                s = outputmap.at("slope_inflated", *inside_iterator);
+
+                if(ugv_traversability_threshold_ < s){
+                    if(d_max < (p1-p2).norm()){
+                        res.position.x = p1[0];
+                        res.position.y = p1[1];
+                        res.position.z = e;
+
+                        d_max = (p1-p2).norm();
+                        r_min = r;
+                    }
+                    break;
+                }
+            }
         }
     }
 
-    ROS_INFO("%f %f", r_min, s_min);
+    // ROS_INFO("%f %f", r_min, s_min);
 
     if (visualize_grid_map_) {
         visualization_msgs::Marker marker;
@@ -166,29 +177,6 @@ bool DeployPlanner::get_pos_callback(
             marker.color.b = 0.0f;
             marker.color.a = 1.0;
         }
-
-        marker.lifetime = ros::Duration();
-
-        landing_marker_publisher_.publish(marker);
-
-        marker.id = 1;
-        start_point.x = end_point.x = req.position.x;
-        start_point.y = end_point.y = req.position.y;
-        start_point.z = end_point.z = outputmap.atPosition("elevation", landing_position);;
-        start_point.z += 1.0;
-
-        marker.points.clear();
-        marker.points.push_back(start_point);
-        marker.points.push_back(end_point);
-
-        marker.scale.x = 0.2;
-        marker.scale.y = 0.4;
-        marker.scale.z = 0.5;
-
-        marker.color.r = 1.0f;
-        marker.color.g = 1.0f;
-        marker.color.b = 1.0f;
-        marker.color.a = 1.0;
 
         marker.lifetime = ros::Duration();
 
