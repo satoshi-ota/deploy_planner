@@ -4,18 +4,11 @@
 
 DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
  :tf_(tf), map_({"elevation"}),
-  filter_chain_("grid_map::GridMap"),
-  octomap_received_(false)
+  filter_chain_("grid_map::GridMap")
 {
     ros::NodeHandle nh;
     ros::NodeHandle private_nh("~");
 
-    // std::string err;
-    // while (ros::ok() && !tf_.canTransform("map", "base_link", ros::Time(0), ros::Duration(1.0), &err)){
-    //     ROS_INFO_STREAM_NAMED("commander","Waiting for transform to be available. (tf says: " << err << ")");
-    // }
-
-    private_nh.param("octomap_service_topic", octomap_service_, std::string("/octomap_binary"));
     private_nh.param("filter_chain_parameter_name", filter_chain_parameter_name_, std::string("grid_map_filters"));
     private_nh.param("probe_tf", probe_tf_, std::string("base_link"));
 
@@ -31,13 +24,12 @@ DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
     private_nh.param("visualize_grid_map", visualize_grid_map_, true);
     private_nh.param("visualize_elevation_map", visualize_elevation_map_, true);
 
-    private_nh.param("deploy_point_x", deploy_point_x_, 0.0);
-    private_nh.param("deploy_point_y", deploy_point_y_, 0.0);
-
     private_nh.param("grid_map_center_x", grid_map_center_x_, 0.0);
     private_nh.param("grid_map_center_y", grid_map_center_y_, 0.0);
+    private_nh.param("grid_map_length_x", grid_map_length_x_, 10.0);
+    private_nh.param("grid_map_length_y", grid_map_length_y_, 10.0);
 
-    probe_service_ = nh.advertiseService("/deploy_probe", &DeployPlanner::get_pos_callback, this);
+    deploy_planning_service_ = nh.advertiseService("deploy/probe", &DeployPlanner::get_pos_callback, this);
     gridmap_crient_ = nh.serviceClient<grid_map_msgs::GetGridMap>("/elevation_mapping/get_raw_submap");
 
     map_.setBasicLayers({"elevation"});
@@ -51,17 +43,9 @@ DeployPlanner::DeployPlanner(tf2_ros::Buffer& tf)
     if (visualize_position_) {
         landing_marker_publisher_ = nh.advertise<visualization_msgs::Marker>("deploy_marker", 1, true);
     }
-    octomap_subscriber_ = nh.subscribe("/octomap_binary", 10, &DeployPlanner::octomap_callback, this);
-
 }
 
 DeployPlanner::~DeployPlanner(){}
-
-void DeployPlanner::octomap_callback(const octomap_msgs::Octomap::ConstPtr& map)
-{
-    octomap_ = *map;
-    octomap_received_ = true;
-}
 
 bool DeployPlanner::get_pos_callback(
     base_landing_planner::GetPos::Request &req,
@@ -73,39 +57,37 @@ bool DeployPlanner::get_pos_callback(
     gridmap_srv.request.frame_id = "map";
     gridmap_srv.request.position_x = grid_map_center_x_;
     gridmap_srv.request.position_y = grid_map_center_y_;
-    gridmap_srv.request.length_x = 10.0;
-    gridmap_srv.request.length_y = 10.0;
+    gridmap_srv.request.length_x = grid_map_length_x_;
+    gridmap_srv.request.length_y = grid_map_length_y_;
 
     if(!gridmap_crient_.call(gridmap_srv)){
         ROS_ERROR("could not get the grid map!");
         return false;
     }
+    ROS_INFO("Service call invoked.");
 
     grid_map::GridMapRosConverter::fromMessage(gridmap_srv.response.map, map_);
+    ROS_INFO("Service call invoked.");
 
     grid_map::GridMap outputmap;
     if (!filter_chain_.update(map_, outputmap)) {
         ROS_ERROR("could not update the grid map filter chain!");
         return false;
     }
+    ROS_INFO("Service call invoked.");
 
     if (visualize_grid_map_) {
         grid_map_msgs::GridMap gridMapMessage;
         grid_map::GridMapRosConverter::toMessage(outputmap, gridMapMessage);
         grid_map_publisher_.publish(gridMapMessage);
     }
+    ROS_INFO("Service call invoked.");
 
-    grid_map::Position landing_position(req.position.x, req.position.y);
+    grid_map::Position landing_position(grid_map_center_x_, grid_map_center_y_);
     grid_map::Index landing_index;
 
-    res.position.x = NAN;
-    res.position.y = NAN;
-    res.position.z = NAN;
-    res.traversability = INFINITY;
-    res.result = base_landing_planner::GetPos::Response::DEPLOY_POINT_NOT_FOUND;
-
+    bool find_deploy_point = false;
     double r, s, e;
-    double r_min, s_min;
     double d, d_max = 0.0;
     for (grid_map::SpiralIterator outside_iterator(outputmap, landing_position, probe_range_limit_x_ / 2.0); !outside_iterator.isPastEnd(); ++outside_iterator) {
 
@@ -115,7 +97,10 @@ bool DeployPlanner::get_pos_callback(
         e = outputmap.at("elevation", *outside_iterator);
 
         if(s < ugv_traversability_threshold_){
-            for (grid_map::SpiralIterator inside_iterator(outputmap, p1, 10); !inside_iterator.isPastEnd(); ++inside_iterator) {
+
+            find_deploy_point = true;
+
+            for (grid_map::SpiralIterator inside_iterator(outputmap, p1, 3); !inside_iterator.isPastEnd(); ++inside_iterator) {
 
                 grid_map::Position p2; outputmap.getPosition(*inside_iterator, p2);
                 s = outputmap.at("slope_inflated", *inside_iterator);
@@ -126,8 +111,13 @@ bool DeployPlanner::get_pos_callback(
                         res.position.y = p1[1];
                         res.position.z = e;
 
+                        if(r < uav_traversability_threshold_){
+                            res.result = base_landing_planner::GetPos::Response::DEPLOY_LANDING;
+                        } else {
+                            res.result = base_landing_planner::GetPos::Response::DEPLOY_HOVERING;
+                        }
+
                         d_max = (p1-p2).norm();
-                        r_min = r;
                     }
                     break;
                 }
@@ -135,7 +125,11 @@ bool DeployPlanner::get_pos_callback(
         }
     }
 
-    // ROS_INFO("%f %f", r_min, s_min);
+    if(!find_deploy_point){
+        res.position.x = NAN;
+        res.position.y = NAN;
+        res.position.z = NAN;
+    }
 
     if (visualize_grid_map_) {
         visualization_msgs::Marker marker;
@@ -165,53 +159,14 @@ bool DeployPlanner::get_pos_callback(
         marker.scale.x = 0.1;
         marker.scale.y = 0.3;
         marker.scale.z = 0.5;
-
-        if(r_min < uav_traversability_threshold_){
-            marker.color.r = 0.0f;
-            marker.color.g = 1.0f;
-            marker.color.b = 0.0f;
-            marker.color.a = 1.0;
-        } else {
-            marker.color.r = 1.0f;
-            marker.color.g = 1.0f;
-            marker.color.b = 0.0f;
-            marker.color.a = 1.0;
-        }
+        marker.color.r = 0.0f;
+        marker.color.g = 1.0f;
+        marker.color.b = 0.0f;
+        marker.color.a = 1.0;
 
         marker.lifetime = ros::Duration();
 
         landing_marker_publisher_.publish(marker);
-    }
-
-    return true;
-}
-
-bool DeployPlanner::getGlobalPose(geometry_msgs::PoseStamped& global_pose)
-{
-    tf2::toMsg(tf2::Transform::getIdentity(), global_pose.pose);
-    geometry_msgs::PoseStamped robot_pose;
-    tf2::toMsg(tf2::Transform::getIdentity(), robot_pose.pose);
-    robot_pose.header.frame_id = "mav_base_link";
-    robot_pose.header.stamp = ros::Time();
-
-    try
-    {
-        tf_.transform(robot_pose, global_pose, "map");
-    }
-    catch (tf2::LookupException& ex)
-    {
-        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","No Transform available Error looking up robot pose: %s\n", ex.what());
-        return false;
-    }
-    catch (tf2::ConnectivityException& ex)
-    {
-        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","Connectivity Error looking up robot pose: %s\n", ex.what());
-        return false;
-    }
-    catch (tf2::ExtrapolationException& ex)
-    {
-        ROS_ERROR_THROTTLE_NAMED(1.0,"commander","Extrapolation Error looking up robot pose: %s\n", ex.what());
-        return false;
     }
 
     return true;

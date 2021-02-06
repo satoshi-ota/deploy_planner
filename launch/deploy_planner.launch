@@ -1,29 +1,34 @@
 <launch>
-  <rosparam command="load" file="$(find deploy_planner)/config/grid_map_landing_planner_filter_chain.yaml" />
-  <!-- TODO: place yaml file here -->
-
-  <node pkg="deploy_planner" type="deploy_planner_node" name="deploy_planner_node" output="screen">
+    <arg name="x" default="10.0"/>
+    <arg name="y" default="0.0"/>
+    <arg name="vehicle" default="joule"/>
     <rosparam command="load" file="$(find deploy_planner)/config/grid_map_landing_planner_filter_chain.yaml" />
-  	<param name="probe_range_limit_x" value="8.0" />
-  	<param name="probe_range_limit_y" value="2.0" />
-  	<param name="probe_range_limit_z_down" value="2.0" />
-  	<param name="probe_range_limit_z_up" value="1.0" />
-  	<param name="visualize_position" value="true" />
-  	<param name="visualize_grid_map" value="true" />
+    <!-- TODO: place yaml file here -->
 
-    <param name="uav_traversability_threshold" value="0.05" />
-    <param name="ugv_traversability_threshold" value="0.52" />
+    <!-- Elevation mapping node -->
+    <node pkg="elevation_mapping" type="elevation_mapping" name="elevation_mapping" output="screen">
+        <rosparam command="load" file="$(find deploy_planner)/config/elevation_mapping_$(arg vehicle).yaml" />
+    </node>
 
-  	<param name="visualize_elevation_map" value="true" />
+    <node pkg="deploy_planner" type="deploy_planner_node" name="deploy_planner_node" output="screen">
+        <param name="probe_range_limit_x" value="4.0" />
+        <param name="probe_range_limit_y" value="4.0" />
+        <param name="visualize_position" value="true" />
+        <param name="visualize_grid_map" value="true" />
 
-    <param name="deploy_point_x" value="14.0" />
-  	<param name="deploy_point_y" value="10.0" />
+        <param name="uav_traversability_threshold" value="0.05" />
+        <param name="ugv_traversability_threshold" value="0.52" />
 
-    <param name="grid_map_center_x" value="14" />
-  	<param name="grid_map_center_y" value="-7" />
-  </node>
+        <param name="visualize_elevation_map" value="true" />
 
-  <!-- Launch the grid map visualizer -->
-  <node pkg="grid_map_visualization" type="grid_map_visualization" name="grid_map_visualization" output="screen" />
+        <param name="grid_map_center_x" value="$(arg x)" />
+        <param name="grid_map_center_y" value="$(arg y)" />
+        <param name="grid_map_length_x" value="5.0" />
+        <param name="grid_map_length_y" value="5.0" />
+    </node>
+
+    <!-- Launch the grid map visualizer -->
+    <node pkg="grid_map_visualization" type="grid_map_visualization" name="grid_map_visualization" output="screen" />
+    <node pkg="tf" name="deploy_point_tf" type="static_transform_publisher" args="$(arg x) $(arg y) 0 0 0 0 map deploy_point 100"/>
 
 </launch>
