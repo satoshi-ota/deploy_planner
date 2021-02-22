@@ -1,6 +1,6 @@
 <launch>
-    <arg name="x" default="10.0"/>
-    <arg name="y" default="0.0"/>
+    <arg name="x" default="0.0"/>
+    <arg name="y" default="2.0"/>
     <arg name="vehicle" default="joule"/>
     <rosparam command="load" file="$(find deploy_planner)/config/grid_map_landing_planner_filter_chain.yaml" />
     <!-- TODO: place yaml file here -->
@@ -11,8 +11,8 @@
     </node>
 
     <node pkg="deploy_planner" type="deploy_planner_node" name="deploy_planner_node" output="screen">
-        <param name="probe_range_limit_x" value="4.0" />
-        <param name="probe_range_limit_y" value="4.0" />
+        <param name="probe_range_limit_x" value="3.0" />
+        <param name="probe_range_limit_y" value="3.0" />
         <param name="visualize_position" value="true" />
         <param name="visualize_grid_map" value="true" />
 
@@ -23,12 +23,12 @@
 
         <param name="grid_map_center_x" value="$(arg x)" />
         <param name="grid_map_center_y" value="$(arg y)" />
-        <param name="grid_map_length_x" value="5.0" />
-        <param name="grid_map_length_y" value="5.0" />
+        <param name="grid_map_length_x" value="4.0" />
+        <param name="grid_map_length_y" value="4.0" />
     </node>
 
     <!-- Launch the grid map visualizer -->
-    <node pkg="grid_map_visualization" type="grid_map_visualization" name="grid_map_visualization" output="screen" />
-    <node pkg="tf" name="deploy_point_tf" type="static_transform_publisher" args="$(arg x) $(arg y) 0 0 0 0 map deploy_point 100"/>
+    <!-- node pkg="grid_map_visualization" type="grid_map_visualization" name="grid_map_visualization" output="screen" / -->
+    <!--node pkg="tf" name="deploy_point_tf" type="static_transform_publisher" args="$(arg x) $(arg y) 0 0 0 0 map deploy_point 100"/-->
 
 </launch>
