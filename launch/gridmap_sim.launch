@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="vehicle" default="joule"/>
+    <!-- TODO: place yaml file here -->
+
+    <!-- Elevation mapping node -->
+    <node pkg="elevation_mapping" type="elevation_mapping" name="elevation_mapping" output="screen">
+        <rosparam command="load" file="$(find deploy_planner)/config/elevation_mapping_$(arg vehicle).yaml" />
+    </node>
+
+    <!-- Launch visualizations for the resulting elevation map -->
+    <include file="$(find elevation_mapping_demos)/launch/visualization.launch" />
+
+</launch>

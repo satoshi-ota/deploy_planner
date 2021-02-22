@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <launch>
     <arg name="x" default="0.0"/>
     <arg name="y" default="2.0"/>
@@ -29,6 +30,6 @@
 
     <!-- Launch the grid map visualizer -->
     <!-- node pkg="grid_map_visualization" type="grid_map_visualization" name="grid_map_visualization" output="screen" / -->
-    <!--node pkg="tf" name="deploy_point_tf" type="static_transform_publisher" args="$(arg x) $(arg y) 0 0 0 0 map deploy_point 100"/-->
+    <node pkg="tf" name="deploy_point_tf" type="static_transform_publisher" args="$(arg x) $(arg y) 0 0 0 0 map deploy_point 100"/>
 
 </launch>
